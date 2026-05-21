@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db, storage } from './firebase';
+import { db, storage, auth } from './firebase';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes } from 'firebase/storage';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const [fase, setFase] = useState(1);
@@ -12,13 +13,42 @@ export default function App() {
     return localStorage.getItem('recolector_completado') === 'true';
   });
 
-  const [userId] = useState(() => {
-    const guardado = localStorage.getItem('recolector_user_id');
-    if (guardado) return guardado;
-    const nuevoId = 'user_' + Math.random().toString(36).substring(2, 9);
-    localStorage.setItem('recolector_user_id', nuevoId);
-    return nuevoId;
-  });
+
+  // Generación de ID
+  // const [userId] = useState(() => {
+  //   const guardado = localStorage.getItem('recolector_user_id');
+  //   if (guardado) return guardado;
+  //   const nuevoId = 'user_' + Math.random().toString(36).substring(2, 9);
+  //   localStorage.setItem('recolector_user_id', nuevoId);
+  //   return nuevoId;
+  // });
+
+  //AUTENTICACIÓN ANÓNIMA CON FIREBASE
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      try {
+        if (currentUser) {
+          setUser(currentUser);
+          setAuthReady(true);
+        } else {
+          const result = await signInAnonymously(auth);
+          setUser(result.user);
+          setAuthReady(true);
+        }
+      } catch (error) {
+        console.error("Error en autenticación anónima:", error);
+        setAuthReady(true);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const userId = user?.uid;
+  // FIN DE AUTENTICACIÓN
 
   const [grabando, setGrabando] = useState(false);
   const [tiempo, setTiempo] = useState(0);
@@ -38,7 +68,7 @@ export default function App() {
   const tiempoRef = useRef(0); 
   const inicioGrabacionRef = useRef(0); 
 
-  const textoFijo = "El viento del norte y el sol disputaban sobre cuál de ellos era el más fuerte, cuando vio acercarse a un viajero envuelto en una capa. Acordaron que el primeiro que lograra que el viajero se quitara la capa sería considerado más poderoso. El viento del norte sopló con gran furia, pero cuanto más soplaba, más se envolvía el viajero en su capa. Al fin, el viento desistió. Entonces el sol brilló con todo su esplendor e inmediatamente el viajero se quitó la capa.\n\nPor otra parte, un cuervo sediento volaba bajo el cielo caluroso buscando un poco de agua. Encontró una jarra en el fondo de un jardín, pero el nivel del agua era tan bajo que su pico no alcanzaba a tocarla. Lejos de rendirse, el ave comenzó a recoger piedras pequeñas con su pico y las fue arrojando una a una dentro del recipiente. Con cada piedra, el agua subía un poco más, hasta que finalmente llegó al borde y el cuervo pudo calmar su sed, demostrando que la paciencia y el ingenio vencen a la fuerza.";
+  const textoFijo = "El viento del norte y el sol disputaban sobre cuál de ellos era el más fuerte, cuando vio acercarse a un viajero envuelto en una capa. Acordaron que el primero que lograra que el viajero se quitara la capa sería considerado más poderoso. El viento del norte sopló con gran furia, pero cuanto más soplaba, más se envolvía el viajero en su capa. Al fin, el viento desistió. Entonces el sol brilló con todo su esplendor e inmediatamente el viajero se quitó la capa.\n\nPor otra parte, un cuervo sediento volaba bajo el cielo caluroso buscando un poco de agua. Encontró una jarra en el fondo de un jardín, pero el nivel del agua era tan bajo que su pico no alcanzaba a tocarla. Lejos de rendirse, el ave comenzó a recoger piedras pequeñas con su pico y las fue arrojando una a una dentro del recipiente. Con cada piedra, el agua subía un poco más, hasta que finalmente llegó al borde y el cuervo pudo calmar su sed, demostrando que la paciencia y el ingenio vencen a la fuerza.";
   
   const preguntasLibres = [
     "Cuéntame detalladamente qué hiciste desde que te levantaste hoy hasta este momento.",
@@ -101,17 +131,45 @@ export default function App() {
 
   const obtenerTextoWikipedia = async () => {
     try {
-      const res = await fetch("https://es.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&generator=random&exchars=800&exintro=1&explaintext=1&grnnamespace=0&origin=*");
+      const temas = [
+        "Historia de México", "Geografía de México", "Cultura de América Latina", 
+        "Gastronomía mexicana", "Revolución Mexicana", "Civilización maya", 
+        "Cine de Oro mexicano", "Pueblos indígenas de México", "Tradiciones de México", 
+        "Día de Muertos", "Literatura latinoamericana", "Arte precolombino",
+        "Biodiversidad en América Latina", "Música regional", 
+        "Inteligencia artificial en América Latina", "Historia del Estado de Hidalgo", 
+        "Pachuca de Soto"
+      ];
+      
+      // 2. Elegimos un tema de la lista al azar
+      const temaAleatorio = temas[Math.floor(Math.random() * temas.length)];
+      
+      const offset = Math.floor(Math.random() * 10);
+
+      // 4. Cambiamos la URL para usar generator=search en lugar de generator=random
+      const url = `https://es.wikipedia.org/w/api.php?action=query&format=json&prop=extracts&generator=search&gsrsearch=${encodeURIComponent(temaAleatorio)}&gsrlimit=1&gsroffset=${offset}&exchars=800&exintro=1&explaintext=1&origin=*`;
+
+      const res = await fetch(url);
       const data = await res.json();
+      
+      // Si la búsqueda no arroja resultados, reintentamos
+      if (!data.query || !data.query.pages) {
+        return obtenerTextoWikipedia();
+      }
+
       const pages = data.query.pages;
       const extract = pages[Object.keys(pages)[0]].extract;
 
-      if (!extract || extract.length < 300) {
+      // Validación: Si el texto es muy corto para una buena muestra de voz, volvemos a intentar
+      if (!extract || extract.length < 600) {
         return obtenerTextoWikipedia();
       }
+      
       setTexto(extract);
     } catch (err) {
-      setTexto("La inteligencia artificial y el procesamiento de señales de audio digital han revolucionado las industrias modernas. A través del análisis espectrográfico, los investigadores pueden aislar ruido ambiental y segmentar locutores eficazmente.");
+      console.error("Error en Wikipedia:", err);
+      // Texto de respaldo por si el internet o la API fallan
+      setTexto("La inteligencia artificial y el procesamiento de señales de audio han revolucionado la tecnología en América Latina. A través del análisis espectrográfico, se busca aislar ruido ambiental y segmentar locutores eficazmente para crear herramientas más adaptadas a nuestros acentos.");
     }
   };
 
@@ -193,28 +251,67 @@ export default function App() {
   };
 
   // Acción manual para confirmar el envío definitivo
+  // const confirmarYEnviarAStorage = async () => {
+  //   if (!audioBuffer) return;
+
+  //   setSubiendo(true);
+  //   setEstadoEnvio('subiendo');
+  //   const rutaArchivo = `audios/${userId}/fase_${fase}.webm`;
+  //   const storageRef = ref(storage, rutaArchivo);
+
+  //   try {
+  //     await uploadBytes(storageRef, audioBuffer);
+  //     await addDoc(collection(db, "grabaciones"), {
+  //       userId: userId,
+  //       fase: fase,
+  //       textoAsociado: texto,
+  //       audioPath: rutaArchivo,
+  //       duracionSegundos: duracionGrabada, 
+  //       fecha: new Date().toISOString()
+  //     });
+
+  //     setSubiendo(false);
+  //     setEstadoEnvio('exito');
+  //     setBloquearSiguiente(false); // Desbloquea el botón "Siguiente"
+  //   } catch (error) {
+  //     console.error("Error al subir a Firebase:", error);
+  //     setSubiendo(false);
+  //     setEstadoEnvio('error');
+  //   }
+  // };
+  // NUEVA VERSIÓN DE LA FUNCIÓN DE ENVÍO CON VERIFICACIÓN DE SESIÓN ANÓNIMA
   const confirmarYEnviarAStorage = async () => {
     if (!audioBuffer) return;
+    if (!auth.currentUser) {
+      setEstadoEnvio('error');
+      alert("No hay sesión anónima activa. Recarga la página e intenta de nuevo.");
+      return;
+    }
+
+    const uid = auth.currentUser.uid;
 
     setSubiendo(true);
     setEstadoEnvio('subiendo');
-    const rutaArchivo = `audios/${userId}/fase_${fase}.webm`;
+
+    const rutaArchivo = `audios/${uid}/fase_${fase}.webm`;
     const storageRef = ref(storage, rutaArchivo);
 
     try {
-      await uploadBytes(storageRef, audioBuffer);
+      await uploadBytes(storageRef, audioBuffer, {
+        contentType: 'audio/webm'
+      });
       await addDoc(collection(db, "grabaciones"), {
-        userId: userId,
-        fase: fase,
+        userId: uid,
+        fase: parseInt(fase),
         textoAsociado: texto,
         audioPath: rutaArchivo,
-        duracionSegundos: duracionGrabada, 
+        duracionSegundos: parseFloat(duracionGrabada.toFixed(3)),
         fecha: new Date().toISOString()
       });
 
       setSubiendo(false);
       setEstadoEnvio('exito');
-      setBloquearSiguiente(false); // Desbloquea el botón "Siguiente"
+      setBloquearSiguiente(false);
     } catch (error) {
       console.error("Error al subir a Firebase:", error);
       setSubiendo(false);
@@ -243,6 +340,29 @@ export default function App() {
     setConsentimiento(true);
   };
 
+  // VISTAS DE BLOQUEO POR AUTENTICACIÓN ANÓNIMA
+  if (!authReady) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.card}>
+          <p style={styles.parrafo}>Inicializando sesión segura...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!userId) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.card}>
+          <p style={styles.parrafo}>
+            No se pudo crear una sesión anónima segura. Intenta recargar la página.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // VISTA 1: FINALIZADO
   if (yaParticipo || fase === 4) {
     return (
@@ -251,7 +371,7 @@ export default function App() {
           <div style={styles.successIcon}>🎉</div>
           <h1 style={styles.tituloPrincipal}>¡Misión Cumplida!</h1>
           <p style={styles.parrafo}>
-            Tu participación ha sido registrada con éxito en el búnker seguro de datos. Tus tres segmentos de voz ya forman parte del dataset de investigación.
+            Tu participación ha sido registrada con éxito. Tus tres segmentos de voz ya forman parte del dataset de investigación.
           </p>
           <div style={styles.lockBadge}>
             🔒 Bloqueo de seguridad activado: No se permiten envíos duplicados desde este dispositivo.
@@ -277,7 +397,7 @@ export default function App() {
           <div style={styles.alertBox}>
             <h3 style={styles.alertTitle}>🛡️ Garantía Ética y Uso de Datos</h3>
             <p style={styles.alertText}>
-              Las muestras obtenidas formarán parte de un corpus abierto de investigación científica. <strong>Está estrictamente prohibido el uso de estos archivos para clonación artificial de voz o suplantación biométrica.</strong> Tu identidad permanece anónima.
+              Las muestras obtenidas formarán parte de un corpus abierto de investigación científica. <strong> El uso de estos archivos NO SON para clonación artificial de voz o suplantación biométrica.</strong> La identidad de los voluntarios permanece anónima.
             </p>
           </div>
 
@@ -347,7 +467,7 @@ export default function App() {
 
         {/* FEEDBACK VISUAL */}
         <div style={styles.statusView}>
-          {estadoEnvio === 'subiendo' && <div style={styles.loaderText}>⏳ Sincronizando audio con el búnker...</div>}
+          {estadoEnvio === 'subiendo' && <div style={styles.loaderText}>⏳ Sincronizando audio...</div>}
           {estadoEnvio === 'exito' && <div style={styles.successText}>✔ ¡Audio asegurado con éxito! Puedes avanzar al siguiente paso.</div>}
           {estadoEnvio === 'error' && <div style={styles.errorText}>❌ Error en la conexión. Vuelve a intentar el segmento.</div>}
         </div>
@@ -356,14 +476,14 @@ export default function App() {
           {/* BOTÓN MODO: INICIAL (Listo para grabar) */}
           {!grabando && !audioUrl && (
             <button onClick={iniciarGrabacion} style={styles.btnGrabar}>
-              🎙️ Grabar este segmento
+              🎙️ Grabar
             </button>
           )}
 
           {/* BOTÓN MODO: GRABANDO */}
           {grabando && (
             <button onClick={detenerGrabacion} style={styles.btnDetener}>
-              ⏹️ Detener Grabación
+              ⏹️ Detener
             </button>
           )}
 
@@ -399,7 +519,7 @@ export default function App() {
 }
 
 const styles = {
-  container: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#f8f9fa', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyYContent: 'center', padding: '20px' },
+  container: { fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', background: '#1e293b', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' },
   card: { background: '#ffffff', maxWidth: '600px', width: '100%', padding: '35px', borderRadius: '20px', boxShadow: '0 15px 35px rgba(0,0,0,0.03)', textAlign: 'center', border: '1px solid #eef2f5' },
   tituloPrincipal: { color: '#1e293b', fontSize: '1.7rem', marginBottom: '15px', fontWeight: '700' },
   parrafo: { color: '#64748b', fontSize: '1rem', lineHeight: '1.6', marginBottom: '20px' },
@@ -410,12 +530,12 @@ const styles = {
   timelineContainer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '30px', padding: '0 10px' },
   timelineStep: { display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#cbd5e1', flex: 1 },
   stepActive: { color: '#2563eb' },
-  stepNumber: { width: '32px', height: '32px', borderRadius: '50%', background: 'currentColor', color: '#fff', display: 'flex', alignItems: 'center', justifyYContent: 'center', fontWeight: '700', fontSize: '0.9rem', marginBottom: '6px' },
+  stepNumber: { width: '32px', height: '32px', borderRadius: '50%', background: 'currentColor', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700', fontSize: '0.9rem', marginBottom: '6px' },
   stepLabel: { fontSize: '0.8rem', fontWeight: '600', color: '#64748b' },
   timelineLine: { height: '2px', background: '#e2e8f0', flex: '1', marginPosition: 'relative', top: '-10px', margin: '0 10px', maxWidth: '70px' },
   metaHeader: { textAlign: 'right', marginBottom: '10px' },
   userIdText: { color: '#94a3b8', fontSize: '0.8rem', fontFamily: 'monospace' },
-  cronometro: { fontSize: '2.5rem', fontWeight: '800', marginBottom: '15px', display: 'flex', alignItems: 'center', justifyYContent: 'center', gap: '8px' },
+  cronometro: { fontSize: '2.5rem', fontWeight: '800', marginBottom: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' },
   dotRojo: { width: '12px', height: '12px', background: '#e74c3c', borderRadius: '50%', animation: 'blink 1s infinite' },
   cajaTexto: { whiteSpace: 'pre-line', textAlign: 'justify', background: '#f1f5f9', padding: '22px', borderRadius: '12px', lineHeight: '1.65', fontSize: '1.05rem', color: '#334155', marginBottom: '20px', border: '1px solid #e2e8f0', minHeight: '100px' },
   btnAlternativo: { background: 'none', border: 'none', color: '#2563eb', fontSize: '0.9rem', fontWeight: '600', cursor: 'pointer', marginBottom: '20px', textDecoration: 'underline' },
@@ -430,7 +550,7 @@ const styles = {
   successIcon: { fontSize: '4rem', marginBottom: '15px' },
   lockBadge: { background: '#f8f9fa', border: '1px dashed #cbd5e1', padding: '12px', borderRadius: '8px', color: '#64748b', fontSize: '0.9rem', fontWeight: '500' },
   
-  // ESTILOS NUEVOS PARA REVISIÓN
+  // ESTILOS DE REVISIÓN
   audioPlayerContainer: { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '15px', marginBottom: '20px', textAlign: 'left' },
   audioPlayerTitle: { margin: '0 0 8px 0', color: '#475569', fontSize: '0.9rem', fontWeight: '600' },
   audioElement: { width: '100%' },
