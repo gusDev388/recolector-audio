@@ -56,11 +56,12 @@ export default function App() {
   const [subiendo, setSubiendo] = useState(false);
   const [estadoEnvio, setEstadoEnvio] = useState(''); 
   const [bloquearSiguiente, setBloquearSiguiente] = useState(true);
+  const [perfilVoz, setPerfilVoz] = useState('');
   
   // ESTADOS MODIFICADOS Y NUEVOS PARA REVISIÓN
-  const [audioBuffer, setAudioBuffer] = useState(null); // Almacena el Blob real
-  const [audioUrl, setAudioUrl] = useState(null);       // Almacena la URL para el reproductor <audio>
-  const [duracionGrabada, setDuracionGrabada] = useState(0); // Guarda los segundos reales calculados
+  const [audioBuffer, setAudioBuffer] = useState(null); 
+  const [audioUrl, setAudioUrl] = useState(null);    
+  const [duracionGrabada, setDuracionGrabada] = useState(0); 
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -250,35 +251,7 @@ export default function App() {
     }
   };
 
-  // Acción manual para confirmar el envío definitivo
-  // const confirmarYEnviarAStorage = async () => {
-  //   if (!audioBuffer) return;
 
-  //   setSubiendo(true);
-  //   setEstadoEnvio('subiendo');
-  //   const rutaArchivo = `audios/${userId}/fase_${fase}.webm`;
-  //   const storageRef = ref(storage, rutaArchivo);
-
-  //   try {
-  //     await uploadBytes(storageRef, audioBuffer);
-  //     await addDoc(collection(db, "grabaciones"), {
-  //       userId: userId,
-  //       fase: fase,
-  //       textoAsociado: texto,
-  //       audioPath: rutaArchivo,
-  //       duracionSegundos: duracionGrabada, 
-  //       fecha: new Date().toISOString()
-  //     });
-
-  //     setSubiendo(false);
-  //     setEstadoEnvio('exito');
-  //     setBloquearSiguiente(false); // Desbloquea el botón "Siguiente"
-  //   } catch (error) {
-  //     console.error("Error al subir a Firebase:", error);
-  //     setSubiendo(false);
-  //     setEstadoEnvio('error');
-  //   }
-  // };
   // NUEVA VERSIÓN DE LA FUNCIÓN DE ENVÍO CON VERIFICACIÓN DE SESIÓN ANÓNIMA
   const confirmarYEnviarAStorage = async () => {
     if (!audioBuffer) return;
@@ -302,10 +275,11 @@ export default function App() {
       });
       await addDoc(collection(db, "grabaciones"), {
         userId: uid,
-        fase: parseInt(fase),
+        fase: fase,
         textoAsociado: texto,
         audioPath: rutaArchivo,
-        duracionSegundos: parseFloat(duracionGrabada.toFixed(3)),
+        duracionSegundos: duracionGrabada,
+        perfilVoz: perfilVoz || localStorage.getItem('recolector_perfil_voz') || 'prefiero_no_decirlo',
         fecha: new Date().toISOString()
       });
 
@@ -336,11 +310,16 @@ export default function App() {
   };
 
   const aceptarConsentimiento = () => {
+    if (!perfilVoz) {
+      alert("Selecciona una opción antes de continuar.");
+      return;
+    }
+
     localStorage.setItem('recolector_consentimiento', 'true');
+    localStorage.setItem('recolector_perfil_voz', perfilVoz);
     setConsentimiento(true);
   };
 
-  // VISTAS DE BLOQUEO POR AUTENTICACIÓN ANÓNIMA
   if (!authReady) {
     return (
       <div style={styles.container}>
@@ -398,6 +377,38 @@ export default function App() {
             <h3 style={styles.alertTitle}>🛡️ Garantía Ética y Uso de Datos</h3>
             <p style={styles.alertText}>
               Las muestras obtenidas formarán parte de un corpus abierto de investigación científica. <strong> El uso de estos archivos NO SON para clonación artificial de voz o suplantación biométrica.</strong> La identidad de los voluntarios permanece anónima.
+            </p>
+          </div>
+
+          <div style={styles.instructionsBox}>
+            <h3 style={styles.instructionsTitle}>📌 Instrucciones antes de comenzar</h3>
+            <ul style={styles.instructionsList}>
+              <li>Busca un lugar lo más silencioso posible.</li>
+              <li>Habla de forma clara, natural y sin forzar la voz.</li>
+              <li>Mantén el micrófono a una distancia estable.</li>
+              <li>Evita reproducir música, televisión o ruido de fondo.</li>
+              <li>Revisa cada grabación antes de enviarla.</li>
+            </ul>
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>
+              Perfil de voz reportado:
+            </label>
+
+            <select
+              value={perfilVoz}
+              onChange={(e) => setPerfilVoz(e.target.value)}
+              style={styles.select}
+            >
+              <option value="">Selecciona una opción</option>
+              <option value="masculina">Masculina</option>
+              <option value="femenina">Femenina</option>
+              <option value="prefiero_no_decirlo">Prefiero no decirlo</option>
+            </select>
+
+            <p style={styles.helperText}>
+              Este dato es opcional para fines de clasificación general del corpus de voz y no se usará para identificarte personalmente.
             </p>
           </div>
 
@@ -555,5 +566,58 @@ const styles = {
   audioPlayerTitle: { margin: '0 0 8px 0', color: '#475569', fontSize: '0.9rem', fontWeight: '600' },
   audioElement: { width: '100%' },
   btnVolver: { background: '#64748b', color: '#fff', border: 'none', padding: '14px 20px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: '600', flex: 1 },
-  btnConfirmar: { background: '#2563eb', color: '#fff', border: 'none', padding: '14px 20px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: '600', flex: 1 }
+  btnConfirmar: { background: '#2563eb', color: '#fff', border: 'none', padding: '14px 20px', borderRadius: '10px', fontSize: '0.95rem', fontWeight: '600', flex: 1 },
+  instructionsBox: {
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    padding: '16px 20px',
+    textAlign: 'left',
+    marginBottom: '20px'
+  },
+
+  instructionsTitle: {
+    margin: '0 0 10px 0',
+    color: '#1e293b',
+    fontSize: '1rem',
+    fontWeight: '700'
+  },
+
+  instructionsList: {
+    margin: 0,
+    paddingLeft: '20px',
+    color: '#475569',
+    fontSize: '0.9rem',
+    lineHeight: '1.6'
+  },
+
+  formGroup: {
+    textAlign: 'left',
+    marginBottom: '22px'
+  },
+
+  label: {
+    display: 'block',
+    color: '#334155',
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    marginBottom: '8px'
+  },
+
+  select: {
+    width: '100%',
+    padding: '12px',
+    borderRadius: '10px',
+    border: '1px solid #cbd5e1',
+    fontSize: '0.95rem',
+    background: '#ffffff',
+    color: '#1e293b'
+  },
+
+  helperText: {
+    color: '#64748b',
+    fontSize: '0.82rem',
+    lineHeight: '1.4',
+    marginTop: '8px'
+  }
 };
